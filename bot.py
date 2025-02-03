@@ -4,6 +4,8 @@ from discord.ext import commands, tasks
 import sqlite3
 import aiohttp
 
+import logging
+
 import os
 from dotenv import load_dotenv
 
@@ -13,6 +15,16 @@ load_dotenv()
 # Get values from .env file
 TOKEN = os.getenv("DISCORD_TOKEN")
 LEADERBOARD_CHANNEL_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID"))
+
+# Simplified logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # Print to console
+        logging.FileHandler("bot.log", mode="a")  # Log to a file
+    ]
+)
 
 # Database setup
 conn = sqlite3.connect("clog_leaderboard.db")
@@ -99,6 +111,7 @@ async def link(
         await interaction.response.send_message(
             f"✅ Linked **{username}** as a **{account_type}**!", ephemeral=True
         )
+        logging.info(f"User {interaction.user} linked account {username} as {account_type}.")
 
         # After linking, update leaderboard
         total = await fetch_collection_log(username)
@@ -117,6 +130,7 @@ async def link(
         await interaction.response.send_message(
             "❌ You have already linked this username!", ephemeral=True
         )
+        logging.warning(f"User {interaction.user} tried to link an already linked account: {username}")
 
 
 # ➤ /unlink command
@@ -134,10 +148,12 @@ async def unlink(interaction: discord.Interaction, username: str):
         await interaction.response.send_message(
             f"✅ Unlinked **{username}**!", ephemeral=True
         )
+        logging.info(f"User {interaction.user} unlinked account {username}.")
     else:
         await interaction.response.send_message(
             "❌ You can only unlink usernames you linked yourself.", ephemeral=True
         )
+        logging.warning(f"User {interaction.user} tried to unlink an account they didn't link: {username}")
 
 
 # ➤ /list command
@@ -164,6 +180,7 @@ async def list_accounts(interaction: discord.Interaction):
         ]
     )
     await interaction.response.send_message(msg, ephemeral=True)
+    logging.info(f"User {interaction.user} requested list of linked accounts.")
 
 
 # ➤ /unlink_all (Admin Only)
@@ -184,6 +201,7 @@ async def unlink_all(interaction: discord.Interaction, user: discord.Member):
         await interaction.response.send_message(
             f"✅ Removed all linked usernames for {user.mention}.",
         )
+        logging.info(f"Admin {interaction.user} removed all linked accounts for {user}.")
     else:
         await interaction.response.send_message(
             "❌ This user has no linked usernames.", ephemeral=True
@@ -206,7 +224,7 @@ async def fetch_collection_log(username):
 # ➤ Update leaderboard every 15 minutes
 @tasks.loop(minutes=15)
 async def update_leaderboard():
-    print("🔄 Updating leaderboard...")
+    logging.info("Updating leaderboard...")
 
     cursor.execute("SELECT username FROM linked_accounts")
     usernames = cursor.fetchall()
@@ -268,9 +286,9 @@ async def update_leaderboard():
         try:
             message = await channel.fetch_message(leaderboard_message_id)
             await message.edit(content=leaderboard_message)
-            print("✅ Leaderboard updated successfully!")
+            logging.info("Leaderboard updated successfully!")
         except discord.NotFound:
-            print("❌ Leaderboard message not found, sending a new one.")
+            logging.warning("Leaderboard message not found, sending a new one.")
             await send_leaderboard_message(channel, leaderboard_message)
     else:
         await send_leaderboard_message(channel, leaderboard_message)
@@ -278,10 +296,10 @@ async def update_leaderboard():
 
 # ➤ Send the leaderboard message for the first time
 async def send_leaderboard_message(channel, leaderboard_message):
-    print("🔄 Sending leaderboard message...")
+    logging.info("Sending leaderboard message...")
     message = await channel.send(leaderboard_message)
     set_leaderboard_message_id(str(message.id))
-    print("✅ Leaderboard message sent and message ID saved.")
+    logging.info("Leaderboard message sent and message ID saved.")
 
 # ➤ /update_leaderboard (Manual Update Command)
 @bot.tree.command(
@@ -307,16 +325,16 @@ async def update_leaderboard_command(interaction: discord.Interaction):
 # Bot events
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands.")
+        logging.info(f"Synced {len(synced)} commands.")
 
         update_leaderboard.start()  # Start any background tasks (like leaderboard updater)
-        print(f"✅ {bot.user} is online!")
+        logging.info(f"{bot.user} is online!")
 
     except Exception as e:
-        print(f"❌ Error while syncing commands: {e}")
+        logging.warning(f"Error while syncing commands: {e}")
 
 
 # Start the bot
