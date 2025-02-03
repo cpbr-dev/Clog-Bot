@@ -172,6 +172,13 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     account_type="Select your account type (Iron, HCIM, UIM, GIM, Main)",
     emoji="(Optional) An emoji to display next to your name",
 )
+@app_commands.choices(account_type=[
+    app_commands.Choice(name="Iron", value="Iron"),
+    app_commands.Choice(name="HCIM", value="HCIM"),
+    app_commands.Choice(name="UIM", value="UIM"),
+    app_commands.Choice(name="GIM", value="GIM"),
+    app_commands.Choice(name="Main", value="Main"),
+])
 async def link(
     interaction: discord.Interaction,
     username: str,
