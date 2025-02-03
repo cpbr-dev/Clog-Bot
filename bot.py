@@ -188,11 +188,14 @@ async def link(
     guild_id = interaction.guild_id
 
     # Ensure emoji is valid
-    if emoji and not any(ord(c) > 255 for c in emoji):
-        await interaction.response.send_message(
-            "❌ Invalid emoji! Please use a real emoji.", ephemeral=True
-        )
-        return
+    if emoji:
+        # Check if it's a custom emoji
+        custom_emoji_pattern = r"<a?:\w+:\d+>"
+        if not any(ord(c) > 255 for c in emoji) and not re.match(custom_emoji_pattern, emoji):
+            await interaction.response.send_message(
+                "❌ Invalid emoji! Please use a real emoji or a valid custom emoji.", ephemeral=True
+            )
+            return
 
     # Insert into database
     try:
