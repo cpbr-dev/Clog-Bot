@@ -29,7 +29,7 @@ logging.basicConfig(
 
 # Database setup
 def get_db_connection():
-    conn = sqlite3.connect("clog_leaderboard.db", timeout=30)
+    conn = sqlite3.connect("clog_leaderboard.db", timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -384,8 +384,8 @@ async def fetch_collection_log(username):
     return None  # Return None if no valid data found
 
 
-# ➤ Update leaderboard every 15 minutes
-@tasks.loop(minutes=15)
+# ➤ Update leaderboard every hour
+@tasks.loop(minutes=60)
 async def update_leaderboard(guild_id=None):
     logging.info("Updating leaderboard...")
 
