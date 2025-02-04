@@ -427,19 +427,21 @@ async def update_leaderboard(guild_id=None):
             )
             emoji, account_type = cursor.fetchone()  # Get the emoji and account type for that user
 
+            display_total = total if total >= 500 else "<500"
+
             if idx == 1:
-                leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {total} / 1,561\n"
+                leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {display_total} / 1,561\n"
             elif idx == 2:
                 leaderboard_message += (
-                    f"🥈 **{username}** {emoji or ''} ({account_type}) - {total}\n"
+                    f"🥈 **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
                 )
             elif idx == 3:
                 leaderboard_message += (
-                    f"🥉 **{username}** {emoji or ''} ({account_type}) - {total}\n\n"
+                    f"🥉 **{username}** {emoji or ''} ({account_type}) - {display_total}\n\n"
                 )
             else:
                 leaderboard_message += (
-                    f"{idx}. **{username}** {emoji or ''} ({account_type}) - {total}\n"
+                    f"{idx}. **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
                 )
 
         # Add instructions at the end of the leaderboard message
