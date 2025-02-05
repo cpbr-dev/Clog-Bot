@@ -10,6 +10,30 @@ import os
 import re
 from dotenv import load_dotenv
 
+
+import asyncio
+import signal
+import sys
+
+async def shutdown():
+    logging.info("Shutting down bot gracefully...")
+
+    # Stop the background leaderboard task if running
+    if update_leaderboard.is_running():
+        update_leaderboard.cancel()
+        logging.info("Stopped background leaderboard update task.")
+
+    # Close database connection
+    if hasattr(get_db_connection, "conn") and get_db_connection.conn:
+        get_db_connection.conn.close()
+        logging.info("Closed database connection.")
+
+    # Logout the bot and stop
+    await bot.close()
+    logging.info("Bot has logged out and shut down.")
+
+    sys.exit(0)  # Exit the program safely
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -27,11 +51,17 @@ logging.basicConfig(
 )
 
 
-# Database setup
-def get_db_connection():
-    conn = sqlite3.connect("clog_leaderboard.db", timeout=10)
+# Create a global connection pool
+def init_db():
+    conn = sqlite3.connect("clog_leaderboard.db", check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
+
+db_conn = init_db()
+db_cursor = db_conn.cursor()
+
+def get_db_connection():
+    return db_conn  # Return the global connection pool
 
 
 with get_db_connection() as conn:
@@ -651,17 +681,27 @@ async def on_tree_error(
 @bot.event
 async def on_ready():
     logging.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
     try:
         synced = await bot.tree.sync()
         logging.info(f"Synced {len(synced)} commands.")
 
-        update_leaderboard.start()  # Start any background tasks (like leaderboard updater)
+        update_leaderboard.start()  # Start background task
         logging.info(f"{bot.user} is online!")
+
+        # Register signal handler for graceful shutdown
+        loop = asyncio.get_running_loop()
+        for signame in ('SIGINT', 'SIGTERM'):
+            loop.add_signal_handler(getattr(signal, signame), lambda: asyncio.create_task(shutdown()))
 
     except Exception as e:
         logging.warning(f"Error while syncing commands: {e}")
 
-
 # Start the bot
 bot.tree.on_error = on_tree_error
-bot.run(TOKEN)
+
+try:
+    bot.run(TOKEN)
+except KeyboardInterrupt:
+    logging.info("Received exit signal, shutting down gracefully...")
+    asyncio.run(shutdown())  # Ensure cleanup runs
