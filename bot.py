@@ -144,11 +144,17 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
             old_channel = bot.get_channel(old_channel_id)
             old_message = await old_channel.fetch_message(leaderboard_message_id)
             await old_message.delete()
-            logging.info(f"Deleted old leaderboard message {leaderboard_message_id} in guild {guild_id}.")
+            logging.info(
+                f"Deleted old leaderboard message {leaderboard_message_id} in guild {guild_id}."
+            )
         except discord.NotFound:
-            logging.warning(f"Old leaderboard message {leaderboard_message_id} not found in guild {guild_id}.")
+            logging.warning(
+                f"Old leaderboard message {leaderboard_message_id} not found in guild {guild_id}."
+            )
         except discord.Forbidden:
-            logging.error(f"Bot does not have permission to delete messages in channel {old_channel_id}.")
+            logging.error(
+                f"Bot does not have permission to delete messages in channel {old_channel_id}."
+            )
 
     # Set the new leaderboard channel ID
     set_leaderboard_channel_id(guild_id, channel.id)
@@ -173,13 +179,15 @@ async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
     account_type="Select your account type (Iron, HCIM, UIM, GIM, Main)",
     emoji="(Optional) An emoji to display next to your name",
 )
-@app_commands.choices(account_type=[
-    app_commands.Choice(name="Iron", value="Iron"),
-    app_commands.Choice(name="HCIM", value="HCIM"),
-    app_commands.Choice(name="UIM", value="UIM"),
-    app_commands.Choice(name="GIM", value="GIM"),
-    app_commands.Choice(name="Main", value="Main"),
-])
+@app_commands.choices(
+    account_type=[
+        app_commands.Choice(name="Iron", value="Iron"),
+        app_commands.Choice(name="HCIM", value="HCIM"),
+        app_commands.Choice(name="UIM", value="UIM"),
+        app_commands.Choice(name="GIM", value="GIM"),
+        app_commands.Choice(name="Main", value="Main"),
+    ]
+)
 async def link(
     interaction: discord.Interaction,
     username: str,
@@ -192,9 +200,12 @@ async def link(
     if emoji:
         # Check if it's a custom emoji
         custom_emoji_pattern = r"<a?:\w+:\d+>"
-        if not any(ord(c) > 255 for c in emoji) and not re.match(custom_emoji_pattern, emoji):
+        if not any(ord(c) > 255 for c in emoji) and not re.match(
+            custom_emoji_pattern, emoji
+        ):
             await interaction.response.send_message(
-                "❌ Invalid emoji! Please use a real emoji or a valid custom emoji.", ephemeral=True
+                "❌ Invalid emoji! Please use a real emoji or a valid custom emoji.",
+                ephemeral=True,
             )
             return
 
@@ -247,7 +258,6 @@ async def unlink(interaction: discord.Interaction, username: str):
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-
         # Non-admins can only unlink their own usernames
         cursor.execute(
             "DELETE FROM linked_accounts WHERE guild_id = ? AND discord_id = ? AND username = ?",
@@ -259,7 +269,9 @@ async def unlink(interaction: discord.Interaction, username: str):
             await interaction.response.send_message(
                 f"✅ Unlinked **{username}**!", ephemeral=True
             )
-            logging.info(f"User {interaction.user} unlinked account {username} in guild {guild_id}.")
+            logging.info(
+                f"User {interaction.user} unlinked account {username} in guild {guild_id}."
+            )
 
             # Refresh leaderboard in the channel
             await update_leaderboard(guild_id)
@@ -271,11 +283,14 @@ async def unlink(interaction: discord.Interaction, username: str):
                 f"User {interaction.user} tried to unlink an account they didn't link: {username} in guild {guild_id}"
             )
 
+
 # ➤ /list command
 @bot.tree.command(
     name="list", description="View all RuneScape usernames linked to your account"
 )
-@app_commands.describe(user="(Optional) The user whose linked usernames you want to view")
+@app_commands.describe(
+    user="(Optional) The user whose linked usernames you want to view"
+)
 async def list_accounts(interaction: discord.Interaction, user: discord.Member = None):
     guild_id = interaction.guild_id
 
@@ -291,7 +306,8 @@ async def list_accounts(interaction: discord.Interaction, user: discord.Member =
 
         if not accounts:
             await interaction.response.send_message(
-                f"❌ {target_user.mention} has not linked any usernames.", ephemeral=True
+                f"❌ {target_user.mention} has not linked any usernames.",
+                ephemeral=True,
             )
             return
 
@@ -302,7 +318,9 @@ async def list_accounts(interaction: discord.Interaction, user: discord.Member =
             ]
         )
         await interaction.response.send_message(msg, ephemeral=True)
-        logging.info(f"User {interaction.user} requested list of linked accounts for {target_user} in guild {guild_id}.")
+        logging.info(
+            f"User {interaction.user} requested list of linked accounts for {target_user} in guild {guild_id}."
+        )
 
 
 # ➤ /unlink_all (Admin Only)
@@ -322,7 +340,10 @@ async def unlink_all(interaction: discord.Interaction, user: discord.Member):
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM linked_accounts WHERE guild_id = ? AND discord_id = ?", (guild_id, user.id))
+        cursor.execute(
+            "DELETE FROM linked_accounts WHERE guild_id = ? AND discord_id = ?",
+            (guild_id, user.id),
+        )
         if cursor.rowcount > 0:
             conn.commit()
             await interaction.response.send_message(
@@ -339,9 +360,11 @@ async def unlink_all(interaction: discord.Interaction, user: discord.Member):
                 "❌ This user has no linked usernames.", ephemeral=True
             )
 
+
 # ➤ /whois command
 @bot.tree.command(
-    name="whois", description="Shows which Discord user a specific RuneScape username is linked to"
+    name="whois",
+    description="Shows which Discord user a specific RuneScape username is linked to",
 )
 @app_commands.describe(username="The RuneScape username you want to look up")
 async def whois(interaction: discord.Interaction, username: str):
@@ -360,15 +383,19 @@ async def whois(interaction: discord.Interaction, username: str):
             user = await bot.fetch_user(discord_id)
             await interaction.response.send_message(
                 f"🔍 **{username}** is linked to Discord user **{user}** ({user.mention}).",
-                ephemeral=True
+                ephemeral=True,
             )
-            logging.info(f"User {interaction.user} looked up whois for {username} in guild {guild_id}.")
+            logging.info(
+                f"User {interaction.user} looked up whois for {username} in guild {guild_id}."
+            )
         else:
             await interaction.response.send_message(
                 f"❌ No Discord user is linked to the username **{username}**.",
-                ephemeral=True
+                ephemeral=True,
             )
-            logging.warning(f"User {interaction.user} tried to look up whois for non-linked username: {username} in guild {guild_id}")
+            logging.warning(
+                f"User {interaction.user} tried to look up whois for non-linked username: {username} in guild {guild_id}"
+            )
 
 
 # ➤ Fetch collection log total from API
@@ -386,13 +413,20 @@ async def fetch_collection_log(username):
 
 # ➤ Update leaderboard every hour
 @tasks.loop(minutes=60)
-async def update_leaderboard(guild_id=None):
-    logging.info("Updating leaderboard...")
+async def update_leaderboard(guild_id=None, manual=False):
+    if guild_id:
+        logging.info(
+            f"Updating leaderboard for guild {guild_id}... (Manual Update: {manual})"
+        )
+    else:
+        logging.info("Updating leaderboard for all guilds... (Manual: False)")
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
         if guild_id:
-            cursor.execute("SELECT username FROM linked_accounts WHERE guild_id = ?", (guild_id,))
+            cursor.execute(
+                "SELECT username FROM linked_accounts WHERE guild_id = ?", (guild_id,)
+            )
         else:
             cursor.execute("SELECT DISTINCT guild_id FROM linked_accounts")
             guild_ids = cursor.fetchall()
@@ -407,6 +441,17 @@ async def update_leaderboard(guild_id=None):
         for (username,) in usernames:
             total = await fetch_collection_log(username)
             if total is not None:
+                if total == -1:
+                    cursor.execute(
+                        "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
+                        (guild_id, username),
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        total = result["collection_log_total"]
+                    else:
+                        continue  # Skip if no previous value is found
+
                 cursor.execute(
                     "INSERT INTO leaderboard (guild_id, username, collection_log_total) VALUES (?, ?, ?) ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?",
                     (guild_id, username, total, total),
@@ -425,24 +470,20 @@ async def update_leaderboard(guild_id=None):
                 "SELECT emoji, account_type FROM linked_accounts WHERE guild_id = ? AND username = ?",
                 (guild_id, username),
             )
-            emoji, account_type = cursor.fetchone()  # Get the emoji and account type for that user
+            emoji, account_type = (
+                cursor.fetchone()
+            )  # Get the emoji and account type for that user
 
-            display_total = total if total >= 500 else "<500"
+            display_total = total if total != -1 else "<500"
 
             if idx == 1:
                 leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {display_total} / 1,561\n"
             elif idx == 2:
-                leaderboard_message += (
-                    f"🥈 **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
-                )
+                leaderboard_message += f"🥈 **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
             elif idx == 3:
-                leaderboard_message += (
-                    f"🥉 **{username}** {emoji or ''} ({account_type}) - {display_total}\n\n"
-                )
+                leaderboard_message += f"🥉 **{username}** {emoji or ''} ({account_type}) - {display_total}\n\n"
             else:
-                leaderboard_message += (
-                    f"{idx}. **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
-                )
+                leaderboard_message += f"{idx}. **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
 
         # Add instructions at the end of the leaderboard message
         leaderboard_message += "\n\nTo link your account, use `/link`\nTo unlink an account, use `/unlink`\n"
@@ -450,7 +491,9 @@ async def update_leaderboard(guild_id=None):
         # Send or update the leaderboard message
         channel_id = get_leaderboard_channel_id(guild_id)
         if not channel_id:
-            logging.warning(f"No leaderboard channel set for guild {guild_id}. Skipping update.")
+            logging.warning(
+                f"No leaderboard channel set for guild {guild_id}. Skipping update."
+            )
             return
 
         channel = bot.get_channel(channel_id)
@@ -460,12 +503,16 @@ async def update_leaderboard(guild_id=None):
             try:
                 message = await channel.fetch_message(leaderboard_message_id)
                 await message.edit(content=leaderboard_message)
-                logging.info("Leaderboard updated successfully!")
+                logging.info(f"Leaderboard updated successfully for guild {guild_id}!")
             except discord.NotFound:
-                logging.warning("Leaderboard message not found, sending a new one.")
+                logging.warning(
+                    f"Leaderboard message not found for guild {guild_id}, sending a new one."
+                )
                 await send_leaderboard_message(channel, leaderboard_message, guild_id)
             except discord.Forbidden:
-                logging.error(f"Bot does not have permission to edit messages in channel {channel.id}.")
+                logging.error(
+                    f"Bot does not have permission to edit messages in channel {channel.id} for guild {guild_id}."
+                )
         else:
             await send_leaderboard_message(channel, leaderboard_message, guild_id)
 
@@ -478,12 +525,14 @@ async def send_leaderboard_message(channel, leaderboard_message, guild_id):
         set_leaderboard_message_id(guild_id, str(message.id))
         logging.info("Leaderboard message sent and message ID saved.")
     except discord.Forbidden:
-        logging.error(f"Bot does not have permission to send messages in channel {channel.id}.")
+        logging.error(
+            f"Bot does not have permission to send messages in channel {channel.id}."
+        )
     except discord.HTTPException as e:
         logging.error(f"Failed to send leaderboard message: {e}")
 
 
-# ➤ /resync (Manual Update Command)
+# ➤ /resync (Admin Only) - Manually update the collection log leaderboard
 @bot.tree.command(
     name="resync",
     description="Manually update the collection log leaderboard",
@@ -503,7 +552,7 @@ async def update_leaderboard_command(interaction: discord.Interaction):
     )
 
     # Run the leaderboard update function manually
-    await update_leaderboard(guild_id)
+    await update_leaderboard(guild_id, manual=True)
 
     # Confirm completion
     await interaction.followup.send(
@@ -511,11 +560,89 @@ async def update_leaderboard_command(interaction: discord.Interaction):
     )
 
 
-async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+# ➤ /override (Admin Only) - Manually set collection log total for a user
+@bot.tree.command(
+    name="override",
+    description="(Admin) Manually override the collection log total for a user",
+)
+@app_commands.describe(
+    username="The RuneScape username", total="The new collection log total"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def override(interaction: discord.Interaction, username: str, total: int):
+    guild_id = interaction.guild_id
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "❌ You must be an administrator to use this command.", ephemeral=True
+        )
+        return
+
+    if total >= 499 or total <= 0:
+        await interaction.response.send_message(
+            "❌ Overrided total must be within the range [0, 499].", ephemeral=True
+        )
+        return
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
+                (guild_id, username),
+            )
+            result = cursor.fetchone()
+            if result is None:
+                await interaction.response.send_message(
+                    f"❌ User **{username}** does not exist in the leaderboard.",
+                    ephemeral=True,
+                )
+                return
+
+            current_total = result["collection_log_total"]
+            if current_total >= 500 :
+                await interaction.response.send_message(
+                    f"❌ You can only override the score for users whose score is <500. Current score for **{username}** is **{current_total}**.",
+                    ephemeral=True,
+                )
+                return
+
+            cursor.execute(
+                "UPDATE leaderboard SET collection_log_total = ? WHERE guild_id = ? AND username = ?",
+                (total, guild_id, username),
+            )
+            conn.commit()
+            await interaction.response.send_message(
+                f"✅ Manually set collection log total for **{username}** to **{total}**.",
+                ephemeral=True,
+            )
+            logging.info(
+                f"Admin {interaction.user} manually set collection log total for {username} to {total} in guild {guild_id}."
+            )
+
+            # Refresh leaderboard in the channel
+            await update_leaderboard(guild_id)
+
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ Failed to set collection log total: {e}", ephemeral=True
+        )
+        logging.error(f"Failed to set collection log total for {username}: {e}")
+
+
+# Error handling
+async def on_tree_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
     if isinstance(error, app_commands.CommandOnCooldown):
-        return await interaction.response.send_message(f"Command is currently on cooldown! Try again in **{error.retry_after:.2f}** seconds!",  ephemeral=True)
+        return await interaction.response.send_message(
+            f"Command is currently on cooldown! Try again in **{error.retry_after:.2f}** seconds!",
+            ephemeral=True,
+        )
     elif isinstance(error, app_commands.MissingPermissions):
-        return await interaction.response.send_message(f"You're missing permissions to use that", ephemeral=True)
+        return await interaction.response.send_message(
+            f"You're missing permissions to use that", ephemeral=True
+        )
     else:
         raise error
 
@@ -533,6 +660,7 @@ async def on_ready():
 
     except Exception as e:
         logging.warning(f"Error while syncing commands: {e}")
+
 
 # Start the bot
 bot.tree.on_error = on_tree_error
