@@ -507,7 +507,7 @@ async def update_leaderboard(guild_id=None, manual=False):
             display_total = total if total != -1 else "<500"
 
             if idx == 1:
-                leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {display_total} / 1,561\n"
+                leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {display_total} / 1,568\n"
             elif idx == 2:
                 leaderboard_message += f"🥈 **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
             elif idx == 3:
