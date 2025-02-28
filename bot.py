@@ -196,11 +196,11 @@ def set_leaderboard_channel_id(guild_id, channel_id: int):
 def get_account_type_emoji(account_type):
     # Map account types to their custom emoji IDs
     emoji_map = {
-        "GIM": "<:gim:1345118334273847352>",
-        "UIM": "<:uim:1345118313407053864>",
-        "HCIM": "<:hcim:1345118282881175632>",
-        "Iron": "<:im:1345118254712229918>",
-        "Main": "<:main:1345118235049332776>",
+        "GIM": "<:gim:1345118041557696583>",
+        "UIM": "<:uim:1345118022712557739>",
+        "HCIM": "<:hcim:1345118032162328656>",
+        "Iron": "<:im:1345118010675040379>",
+        "Main": "<:main:1345118171115556994>",
     }
 
     return emoji_map.get(
