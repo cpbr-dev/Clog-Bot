@@ -46,7 +46,7 @@ async def send_leaderboard_embed(channel, embed, guild_id):
 
 
 # ➤ Update leaderboard every hour
-@tasks.loop(hours=2)  # Modified to reduce API calls when not manually triggered
+@tasks.loop(hours=1)
 async def update_leaderboard(guild_id=None, manual=False, bypass_cache=False):
     global _bot
 
@@ -118,22 +118,21 @@ async def update_leaderboard(guild_id=None, manual=False, bypass_cache=False):
 
                         if score is not None:
                             if score == -1:
+                                # Don't skip users with -1 scores, keep them in the leaderboard
+                                # They will be displayed as "<500" later
+                                logger.debug(f"User {username} has fewer than 500 items (score: -1)")
+                                # Only check for previous value if we want to use it instead of -1
+                                # But don't skip the user if no previous value exists
                                 cursor.execute(
                                     "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
                                     (guild_id, username),
                                 )
-                                result = cursor.fetchone()
-                                if result:
-                                    score = result["collection_log_total"]
-                                    logger.debug(
-                                        f"Using previous total for {username}: {score}"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"No previous value found for {username}, skipping"
-                                    )
-                                    failed_users += 1
-                                    continue  # Skip if no previous value is found
+                                previous_result = cursor.fetchone()
+                                if previous_result and previous_result["collection_log_total"] > 0 and previous_result["collection_log_total"] < 500:
+                                    # Only use previous value if it's valid (between 0-499)
+                                    score = previous_result["collection_log_total"]
+                                    logger.debug(f"Using previous total for {username}: {score}")
+                                # Otherwise keep score as -1 (will display as "<500")
 
                             # Check if value changed from previous
                             previous_score = previous_leaderboard.get(username)

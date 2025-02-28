@@ -9,7 +9,7 @@ logger = logging.getLogger()
 
 # Add caching to reduce API calls
 _cache = {}  # username -> (timestamp, data)
-CACHE_TTL = 3600  # 1 hour cache
+CACHE_TTL = 600  # 10 minute cache
 
 
 async def fetch_collection_log(username, bypass_cache=False):
