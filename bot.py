@@ -490,7 +490,7 @@ async def fetch_collection_log(username):
 
 
 # ➤ Update leaderboard every hour
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=60)
 async def update_leaderboard(guild_id=None, manual=False):
     if guild_id:
         logger.info(
