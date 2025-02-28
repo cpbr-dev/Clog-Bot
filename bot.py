@@ -15,6 +15,7 @@ import asyncio
 import signal
 import sys
 
+
 async def shutdown():
     logging.info("Shutting down bot gracefully...")
 
@@ -33,6 +34,7 @@ async def shutdown():
     logging.info("Bot has logged out and shut down.")
 
     sys.exit(0)  # Exit the program safely
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -57,8 +59,10 @@ def init_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+
 db_conn = init_db()
 db_cursor = db_conn.cursor()
+
 
 def get_db_connection():
     return db_conn  # Return the global connection pool
@@ -490,30 +494,46 @@ async def update_leaderboard(guild_id=None, manual=False):
 
         conn.commit()
 
-        # Sort and take the top 50 players
-        leaderboard_data.sort(key=lambda x: x[1], reverse=True)
+        # Sort leaderboard data considering username as secondary sort key for ties
+        leaderboard_data.sort(key=lambda x: (-x[1], x[0].lower()))
         leaderboard_data = leaderboard_data[:50]
 
         leaderboard_message = "**🏆 Collection Log Leaderboard (Top 50) 🏆**\n\n"
+        last_score = None
+        current_rank = 0
+
         for idx, (username, total) in enumerate(leaderboard_data, 1):
+            # Update rank only when score changes
+            if total != last_score:
+                current_rank = idx
+            last_score = total
+
             cursor.execute(
                 "SELECT emoji, account_type FROM linked_accounts WHERE guild_id = ? AND username = ?",
                 (guild_id, username),
             )
-            emoji, account_type = (
-                cursor.fetchone()
-            )  # Get the emoji and account type for that user
+            result = cursor.fetchone()
+            emoji, account_type = result if result else (None, None)
 
             display_total = total if total != -1 else "<500"
 
-            if idx == 1:
-                leaderboard_message += f"🥇 **{username}** {emoji or ''} ({account_type}) - {display_total} / 1,568\n"
-            elif idx == 2:
-                leaderboard_message += f"🥈 **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
-            elif idx == 3:
-                leaderboard_message += f"🥉 **{username}** {emoji or ''} ({account_type}) - {display_total}\n\n"
+            # Show medal for top 3, using current_rank instead of idx
+            if current_rank == 1:
+                prefix = "🥇"
+            elif current_rank == 2:
+                prefix = "🥈"
+            elif current_rank == 3:
+                prefix = "🥉"
             else:
-                leaderboard_message += f"{idx}. **{username}** {emoji or ''} ({account_type}) - {display_total}\n"
+                prefix = f"{current_rank}."
+
+            rank_line = f"{prefix} **{username}** {emoji or ''} ({account_type}) - {display_total}"
+            if current_rank == 1:
+                rank_line += " / 1,568"
+
+            leaderboard_message += rank_line + "\n"
+            if current_rank == 3:
+                leaderboard_message += "\n"
 
         # Add instructions at the end of the leaderboard message
         leaderboard_message += "\n\nTo link your account, use `/link`\nTo unlink an account, use `/unlink`\n"
@@ -630,7 +650,7 @@ async def override(interaction: discord.Interaction, username: str, total: int):
                 return
 
             current_total = result["collection_log_total"]
-            if current_total >= 500 :
+            if current_total >= 500:
                 await interaction.response.send_message(
                     f"❌ You can only override the score for users whose score is <500. Current score for **{username}** is **{current_total}**.",
                     ephemeral=True,
@@ -691,11 +711,14 @@ async def on_ready():
 
         # Register signal handler for graceful shutdown
         loop = asyncio.get_running_loop()
-        for signame in ('SIGINT', 'SIGTERM'):
-            loop.add_signal_handler(getattr(signal, signame), lambda: asyncio.create_task(shutdown()))
+        for signame in ("SIGINT", "SIGTERM"):
+            loop.add_signal_handler(
+                getattr(signal, signame), lambda: asyncio.create_task(shutdown())
+            )
 
     except Exception as e:
         logging.warning(f"Error while syncing commands: {e}")
+
 
 # Start the bot
 bot.tree.on_error = on_tree_error
