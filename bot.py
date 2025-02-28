@@ -5,6 +5,8 @@ import sqlite3
 import aiohttp
 
 import logging
+from logging.handlers import RotatingFileHandler
+import traceback
 
 import os
 import re
@@ -17,40 +19,61 @@ import sys
 
 
 async def shutdown():
-    logging.info("Shutting down bot gracefully...")
+    logger.info("Shutting down bot gracefully...")
 
     # Stop the background leaderboard task if running
     if update_leaderboard.is_running():
         update_leaderboard.cancel()
-        logging.info("Stopped background leaderboard update task.")
+        logger.info("Stopped background leaderboard update task.")
 
     # Close database connection
     if hasattr(get_db_connection, "conn") and get_db_connection.conn:
         get_db_connection.conn.close()
-        logging.info("Closed database connection.")
+        logger.info("Closed database connection.")
 
     # Logout the bot and stop
     await bot.close()
-    logging.info("Bot has logged out and shut down.")
+    logger.info("Bot has logged out and shut down.")
 
     sys.exit(0)  # Exit the program safely
 
+
+# Enhanced logging setup
+def setup_logging():
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Clear existing handlers to avoid duplicates
+    logger.handlers = []
+
+    # Format with more details
+    log_format = logging.Formatter(
+        "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] %(funcName)s - %(message)s"
+    )
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_format)
+    logger.addHandler(console_handler)
+
+    # File handler with rotation (10MB max per file, keeping 5 backup files)
+    file_handler = RotatingFileHandler(
+        "bot.log", maxBytes=10 * 1024 * 1024, backupCount=5, mode="a"
+    )
+    file_handler.setFormatter(log_format)
+    logger.addHandler(file_handler)
+
+    return logger
+
+
+# Initialize logger
+logger = setup_logging()
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Get values from .env file
 TOKEN = os.getenv("DISCORD_TOKEN")
-
-# Simplified logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),  # Print to console
-        logging.FileHandler("bot.log", mode="a"),  # Log to a file
-    ],
-)
 
 
 # Create a global connection pool
@@ -434,152 +457,275 @@ async def whois(interaction: discord.Interaction, username: str):
 
 # ➤ Fetch collection log total from API
 async def fetch_collection_log(username):
+    logger.debug(f"Fetching collection log for {username}")
     url = f"https://secure.runescape.com/m=hiscore_oldschool/index_lite.json?player={username}"
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                data = await response.json()
-                for activity in data.get("activities", []):
-                    if activity["id"] == 18:  # Collections Logged
-                        return activity["score"]
+        try:
+            async with session.get(url) as response:
+                logger.debug(f"API response status for {username}: {response.status}")
+                if response.status == 200:
+                    try:
+                        data = await response.json()
+                        logger.debug(f"API data received for {username}: {data}")
+                        for activity in data.get("activities", []):
+                            if activity["id"] == 18:  # Collections Logged
+                                logger.info(
+                                    f"Collection log for {username}: {activity['score']}"
+                                )
+                                return activity["score"]
+                        logger.warning(f"No collection log data found for {username}")
+                    except Exception as e:
+                        logger.error(f"Error parsing API response for {username}: {e}")
+                        logger.error(traceback.format_exc())
+                else:
+                    logger.warning(
+                        f"API request failed for {username}: Status {response.status}"
+                    )
+        except Exception as e:
+            logger.error(f"Exception while fetching collection log for {username}: {e}")
+            logger.error(traceback.format_exc())
+
+    logger.warning(f"Returning None for {username} collection log")
     return None  # Return None if no valid data found
 
 
 # ➤ Update leaderboard every hour
-@tasks.loop(minutes=60)
+@tasks.loop(minutes=5)
 async def update_leaderboard(guild_id=None, manual=False):
     if guild_id:
-        logging.info(
+        logger.info(
             f"Updating leaderboard for guild {guild_id}... (Manual Update: {manual})"
         )
     else:
-        logging.info("Updating leaderboard for all guilds... (Manual: False)")
+        logger.info("Updating leaderboard for all guilds... (Manual: False)")
 
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        if guild_id:
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if guild_id:
+                cursor.execute(
+                    "SELECT username FROM linked_accounts WHERE guild_id = ?",
+                    (guild_id,),
+                )
+                usernames = cursor.fetchall()
+                logger.info(
+                    f"Found {len(usernames)} linked accounts for guild {guild_id}"
+                )
+            else:
+                cursor.execute("SELECT DISTINCT guild_id FROM linked_accounts")
+                guild_ids = cursor.fetchall()
+                logger.info(f"Found {len(guild_ids)} guilds with linked accounts")
+                for (guild_id,) in guild_ids:
+                    await update_leaderboard(guild_id)
+                return
+
+            if not usernames:
+                logger.warning(f"No linked accounts found for guild {guild_id}")
+                return
+
+            leaderboard_data = []
+            previous_leaderboard = {}
+
+            # Get previous leaderboard data for comparison
             cursor.execute(
-                "SELECT username FROM linked_accounts WHERE guild_id = ?", (guild_id,)
+                "SELECT username, collection_log_total FROM leaderboard WHERE guild_id = ?",
+                (guild_id,),
             )
-        else:
-            cursor.execute("SELECT DISTINCT guild_id FROM linked_accounts")
-            guild_ids = cursor.fetchall()
-            for (guild_id,) in guild_ids:
-                await update_leaderboard(guild_id)
-            return
+            for row in cursor.fetchall():
+                previous_leaderboard[row["username"]] = row["collection_log_total"]
 
-        usernames = cursor.fetchall()
+            logger.info(
+                f"Previous leaderboard had {len(previous_leaderboard)} entries for guild {guild_id}"
+            )
 
-        leaderboard_data = []
+            # Process each username
+            processed_users = 0
+            failed_users = 0
+            unchanged_users = 0
 
-        for (username,) in usernames:
-            total = await fetch_collection_log(username)
-            if total is not None:
-                if total == -1:
-                    cursor.execute(
-                        "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
-                        (guild_id, username),
-                    )
-                    result = cursor.fetchone()
-                    if result:
-                        total = result["collection_log_total"]
+            for (username,) in usernames:
+                try:
+                    logger.debug(f"Processing {username} for leaderboard")
+                    total = await fetch_collection_log(username)
+
+                    if total is not None:
+                        if total == -1:
+                            cursor.execute(
+                                "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
+                                (guild_id, username),
+                            )
+                            result = cursor.fetchone()
+                            if result:
+                                total = result["collection_log_total"]
+                                logger.debug(
+                                    f"Using previous total for {username}: {total}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"No previous value found for {username}, skipping"
+                                )
+                                failed_users += 1
+                                continue  # Skip if no previous value is found
+
+                        # Check if value changed from previous
+                        previous_total = previous_leaderboard.get(username)
+                        if previous_total == total:
+                            unchanged_users += 1
+                            logger.debug(f"{username}'s total unchanged: {total}")
+                        else:
+                            if previous_total is not None:
+                                logger.info(
+                                    f"{username}'s total changed: {previous_total} -> {total}"
+                                )
+                            else:
+                                logger.info(
+                                    f"{username} added to leaderboard with total: {total}"
+                                )
+
+                        # Update database
+                        cursor.execute(
+                            "INSERT INTO leaderboard (guild_id, username, collection_log_total) VALUES (?, ?, ?) "
+                            "ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?",
+                            (guild_id, username, total, total),
+                        )
+                        leaderboard_data.append((username, total))
+                        processed_users += 1
                     else:
-                        continue  # Skip if no previous value is found
+                        logger.warning(f"Could not fetch collection log for {username}")
+                        failed_users += 1
+
+                        # Check if they were previously in leaderboard and keep their old score
+                        if username in previous_leaderboard:
+                            logger.info(
+                                f"Keeping previous score {previous_leaderboard[username]} for {username}"
+                            )
+                            leaderboard_data.append(
+                                (username, previous_leaderboard[username])
+                            )
+                            processed_users += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing {username} for leaderboard: {e}")
+                    logger.error(traceback.format_exc())
+                    failed_users += 1
+
+            conn.commit()
+
+            logger.info(f"Leaderboard update summary for guild {guild_id}:")
+            logger.info(f"- Processed users: {processed_users}")
+            logger.info(f"- Failed users: {failed_users}")
+            logger.info(f"- Unchanged users: {unchanged_users}")
+            logger.info(f"- Total in leaderboard: {len(leaderboard_data)}")
+
+            # Sort leaderboard data considering username as secondary sort key for ties
+            leaderboard_data.sort(key=lambda x: (-x[1], x[0].lower()))
+            leaderboard_data = leaderboard_data[:50]
+
+            # Check if anyone was cut off from top 50
+            if len(leaderboard_data) == 50 and processed_users > 50:
+                logger.info(
+                    f"Some users did not make top 50. Cutoff score: {leaderboard_data[-1][1]}"
+                )
+
+            # Generate leaderboard message
+            leaderboard_message = "**🏆 Collection Log Leaderboard (Top 50) 🏆**\n\n"
+            last_score = None
+            current_rank = 0
+
+            for idx, (username, total) in enumerate(leaderboard_data, 1):
+                # Update rank only when score changes
+                if total != last_score:
+                    current_rank = idx
+                last_score = total
 
                 cursor.execute(
-                    "INSERT INTO leaderboard (guild_id, username, collection_log_total) VALUES (?, ?, ?) ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?",
-                    (guild_id, username, total, total),
+                    "SELECT emoji, account_type FROM linked_accounts WHERE guild_id = ? AND username = ?",
+                    (guild_id, username),
                 )
-                leaderboard_data.append((username, total))
+                result = cursor.fetchone()
+                emoji, account_type = result if result else (None, None)
 
-        conn.commit()
+                display_total = total if total != -1 else "<500"
 
-        # Sort leaderboard data considering username as secondary sort key for ties
-        leaderboard_data.sort(key=lambda x: (-x[1], x[0].lower()))
-        leaderboard_data = leaderboard_data[:50]
+                # Show medal for top 3, using current_rank instead of idx
+                if current_rank == 1:
+                    prefix = "🥇"
+                elif current_rank == 2:
+                    prefix = "🥈"
+                elif current_rank == 3:
+                    prefix = "🥉"
+                else:
+                    prefix = f"{current_rank}."
 
-        leaderboard_message = "**🏆 Collection Log Leaderboard (Top 50) 🏆**\n\n"
-        last_score = None
-        current_rank = 0
+                rank_line = f"{prefix} **{username}** {emoji or ''} ({account_type}) - {display_total}"
+                if current_rank == 1:
+                    rank_line += " / 1,568"
 
-        for idx, (username, total) in enumerate(leaderboard_data, 1):
-            # Update rank only when score changes
-            if total != last_score:
-                current_rank = idx
-            last_score = total
+                leaderboard_message += rank_line + "\n"
+                if current_rank == 3:
+                    leaderboard_message += "\n"
 
-            cursor.execute(
-                "SELECT emoji, account_type FROM linked_accounts WHERE guild_id = ? AND username = ?",
-                (guild_id, username),
-            )
-            result = cursor.fetchone()
-            emoji, account_type = result if result else (None, None)
+            # Add instructions at the end of the leaderboard message
+            leaderboard_message += "\n\nTo link your account, use `/link`\nTo unlink an account, use `/unlink`\n"
 
-            display_total = total if total != -1 else "<500"
+            # Send or update the leaderboard message
+            channel_id = get_leaderboard_channel_id(guild_id)
+            if not channel_id:
+                logger.warning(
+                    f"No leaderboard channel set for guild {guild_id}. Skipping update."
+                )
+                return
 
-            # Show medal for top 3, using current_rank instead of idx
-            if current_rank == 1:
-                prefix = "🥇"
-            elif current_rank == 2:
-                prefix = "🥈"
-            elif current_rank == 3:
-                prefix = "🥉"
+            channel = bot.get_channel(channel_id)
+            if not channel:
+                logger.error(
+                    f"Could not find channel {channel_id} for guild {guild_id}"
+                )
+                return
+
+            leaderboard_message_id = get_leaderboard_message_id(guild_id)
+
+            if leaderboard_message_id:
+                try:
+                    message = await channel.fetch_message(leaderboard_message_id)
+                    await message.edit(content=leaderboard_message)
+                    logger.info(
+                        f"Leaderboard updated successfully for guild {guild_id}!"
+                    )
+                except discord.NotFound:
+                    logger.warning(
+                        f"Leaderboard message not found for guild {guild_id}, sending a new one."
+                    )
+                    await send_leaderboard_message(
+                        channel, leaderboard_message, guild_id
+                    )
+                except discord.Forbidden:
+                    logger.error(
+                        f"Bot does not have permission to edit messages in channel {channel.id} for guild {guild_id}."
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating leaderboard message: {e}")
+                    logger.error(traceback.format_exc())
             else:
-                prefix = f"{current_rank}."
-
-            rank_line = f"{prefix} **{username}** {emoji or ''} ({account_type}) - {display_total}"
-            if current_rank == 1:
-                rank_line += " / 1,568"
-
-            leaderboard_message += rank_line + "\n"
-            if current_rank == 3:
-                leaderboard_message += "\n"
-
-        # Add instructions at the end of the leaderboard message
-        leaderboard_message += "\n\nTo link your account, use `/link`\nTo unlink an account, use `/unlink`\n"
-
-        # Send or update the leaderboard message
-        channel_id = get_leaderboard_channel_id(guild_id)
-        if not channel_id:
-            logging.warning(
-                f"No leaderboard channel set for guild {guild_id}. Skipping update."
-            )
-            return
-
-        channel = bot.get_channel(channel_id)
-        leaderboard_message_id = get_leaderboard_message_id(guild_id)
-
-        if leaderboard_message_id:
-            try:
-                message = await channel.fetch_message(leaderboard_message_id)
-                await message.edit(content=leaderboard_message)
-                logging.info(f"Leaderboard updated successfully for guild {guild_id}!")
-            except discord.NotFound:
-                logging.warning(
-                    f"Leaderboard message not found for guild {guild_id}, sending a new one."
-                )
                 await send_leaderboard_message(channel, leaderboard_message, guild_id)
-            except discord.Forbidden:
-                logging.error(
-                    f"Bot does not have permission to edit messages in channel {channel.id} for guild {guild_id}."
-                )
-        else:
-            await send_leaderboard_message(channel, leaderboard_message, guild_id)
+    except Exception as e:
+        logger.error(f"Error in update_leaderboard: {e}")
+        logger.error(traceback.format_exc())
 
 
 # ➤ Send the leaderboard message for the first time
 async def send_leaderboard_message(channel, leaderboard_message, guild_id):
-    logging.info("Sending leaderboard message...")
+    logger.info("Sending leaderboard message...")
     try:
         message = await channel.send(leaderboard_message)
         set_leaderboard_message_id(guild_id, str(message.id))
-        logging.info("Leaderboard message sent and message ID saved.")
+        logger.info("Leaderboard message sent and message ID saved.")
     except discord.Forbidden:
-        logging.error(
+        logger.error(
             f"Bot does not have permission to send messages in channel {channel.id}."
         )
     except discord.HTTPException as e:
-        logging.error(f"Failed to send leaderboard message: {e}")
+        logger.error(f"Failed to send leaderboard message: {e}")
 
 
 # ➤ /resync (Admin Only) - Manually update the collection log leaderboard
