@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import sqlite3
 import aiohttp
-import time
+import datetime
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -96,6 +96,18 @@ def get_db_connection():
 
 with get_db_connection() as conn:
     cursor = conn.cursor()
+
+    # Check if rank column exists in leaderboard table
+    cursor.execute("PRAGMA table_info(leaderboard)")
+    columns = [column["name"] for column in cursor.fetchall()]
+
+    if "hiscore_rank" not in columns:
+        cursor.execute(
+            "ALTER TABLE leaderboard ADD COLUMN hiscore_rank INTEGER DEFAULT -1"
+        )
+        conn.commit()
+        logger.info("Added hiscore_rank column to leaderboard table")
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS linked_accounts (
@@ -178,6 +190,22 @@ def set_leaderboard_channel_id(guild_id, channel_id: int):
             (guild_id, str(channel_id)),
         )
         conn.commit()
+
+
+# Add this function to get the appropriate emoji for each account type
+def get_account_type_emoji(account_type):
+    # Map account types to their custom emoji IDs
+    emoji_map = {
+        "GIM": "<:gim:1345118334273847352>",
+        "UIM": "<:uim:1345118313407053864>",
+        "HCIM": "<:hcim:1345118282881175632>",
+        "Iron": "<:im:1345118254712229918>",
+        "Main": "<:main:1345118235049332776>",
+    }
+
+    return emoji_map.get(
+        account_type, account_type
+    )  # Fallback to text if no emoji found
 
 
 # Custom check for admin permissions including specific role and user
@@ -318,11 +346,14 @@ async def link(
             )
 
             # After linking, update leaderboard
-            total = await fetch_collection_log(username)
-            if total is not None:
+            result = await fetch_collection_log(username)
+            if result is not None:
+                score = result["score"]
+                rank = result["rank"]
                 cursor.execute(
-                    "INSERT INTO leaderboard (guild_id, username, collection_log_total) VALUES (?, ?, ?) ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?",
-                    (guild_id, username, total, total),
+                    "INSERT INTO leaderboard (guild_id, username, collection_log_total, hiscore_rank) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?, hiscore_rank = ?",
+                    (guild_id, username, score, rank, score, rank),
                 )
                 conn.commit()
                 logging.info(f"Leaderboard updated for {username} in guild {guild_id}")
@@ -424,7 +455,6 @@ async def list_accounts(interaction: discord.Interaction, user: discord.Member =
 async def unlink_all(interaction: discord.Interaction, user: discord.Member):
     guild_id = interaction.guild_id
 
-
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -499,10 +529,12 @@ async def fetch_collection_log(username):
                         logger.debug(f"API data received for {username}: {data}")
                         for activity in data.get("activities", []):
                             if activity["id"] == 18:  # Collections Logged
+                                score = activity["score"]
+                                rank = activity["rank"]
                                 logger.info(
-                                    f"Collection log for {username}: {activity['score']}"
+                                    f"Collection log for {username}: score={score}, rank={rank}"
                                 )
-                                return activity["score"]
+                                return {"score": score, "rank": rank}
                         logger.warning(f"No collection log data found for {username}")
                     except Exception as e:
                         logger.error(f"Error parsing API response for {username}: {e}")
@@ -576,63 +608,69 @@ async def update_leaderboard(guild_id=None, manual=False):
             for (username,) in usernames:
                 try:
                     logger.debug(f"Processing {username} for leaderboard")
-                    total = await fetch_collection_log(username)
+                    result = await fetch_collection_log(username)
 
-                    if total is not None:
-                        if total == -1:
+                    if result is not None:
+                        score = result["score"]
+                        rank = result["rank"]
+
+                        if score is not None:
+                            if score == -1:
+                                cursor.execute(
+                                    "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
+                                    (guild_id, username),
+                                )
+                                result = cursor.fetchone()
+                                if result:
+                                    score = result["collection_log_total"]
+                                    logger.debug(
+                                        f"Using previous total for {username}: {score}"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"No previous value found for {username}, skipping"
+                                    )
+                                    failed_users += 1
+                                    continue  # Skip if no previous value is found
+
+                            # Check if value changed from previous
+                            previous_score = previous_leaderboard.get(username)
+                            if previous_score == score:
+                                unchanged_users += 1
+                                logger.debug(f"{username}'s total unchanged: {score}")
+                            else:
+                                if previous_score is not None:
+                                    logger.info(
+                                        f"{username}'s total changed: {previous_score} -> {score}"
+                                    )
+                                else:
+                                    logger.info(
+                                        f"{username} added to leaderboard with total: {score}"
+                                    )
+
+                            # Update database with score and rank
                             cursor.execute(
-                                "SELECT collection_log_total FROM leaderboard WHERE guild_id = ? AND username = ?",
-                                (guild_id, username),
+                                "INSERT INTO leaderboard (guild_id, username, collection_log_total, hiscore_rank) VALUES (?, ?, ?, ?) "
+                                "ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?, hiscore_rank = ?",
+                                (guild_id, username, score, rank, score, rank),
                             )
-                            result = cursor.fetchone()
-                            if result:
-                                total = result["collection_log_total"]
-                                logger.debug(
-                                    f"Using previous total for {username}: {total}"
-                                )
-                            else:
-                                logger.warning(
-                                    f"No previous value found for {username}, skipping"
-                                )
-                                failed_users += 1
-                                continue  # Skip if no previous value is found
-
-                        # Check if value changed from previous
-                        previous_total = previous_leaderboard.get(username)
-                        if previous_total == total:
-                            unchanged_users += 1
-                            logger.debug(f"{username}'s total unchanged: {total}")
-                        else:
-                            if previous_total is not None:
-                                logger.info(
-                                    f"{username}'s total changed: {previous_total} -> {total}"
-                                )
-                            else:
-                                logger.info(
-                                    f"{username} added to leaderboard with total: {total}"
-                                )
-
-                        # Update database
-                        cursor.execute(
-                            "INSERT INTO leaderboard (guild_id, username, collection_log_total) VALUES (?, ?, ?) "
-                            "ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?",
-                            (guild_id, username, total, total),
-                        )
-                        leaderboard_data.append((username, total))
-                        processed_users += 1
-                    else:
-                        logger.warning(f"Could not fetch collection log for {username}")
-                        failed_users += 1
-
-                        # Check if they were previously in leaderboard and keep their old score
-                        if username in previous_leaderboard:
-                            logger.info(
-                                f"Keeping previous score {previous_leaderboard[username]} for {username}"
-                            )
-                            leaderboard_data.append(
-                                (username, previous_leaderboard[username])
-                            )
+                            leaderboard_data.append((username, score, rank))
                             processed_users += 1
+                        else:
+                            logger.warning(
+                                f"Could not fetch collection log for {username}"
+                            )
+                            failed_users += 1
+
+                            # Check if they were previously in leaderboard and keep their old score
+                            if username in previous_leaderboard:
+                                logger.info(
+                                    f"Keeping previous score {previous_leaderboard[username]} for {username}"
+                                )
+                                leaderboard_data.append(
+                                    (username, previous_leaderboard[username])
+                                )
+                                processed_users += 1
 
                 except Exception as e:
                     logger.error(f"Error processing {username} for leaderboard: {e}")
@@ -647,8 +685,11 @@ async def update_leaderboard(guild_id=None, manual=False):
             logger.info(f"- Unchanged users: {unchanged_users}")
             logger.info(f"- Total in leaderboard: {len(leaderboard_data)}")
 
-            # Sort leaderboard data considering username as secondary sort key for ties
-            leaderboard_data.sort(key=lambda x: (-x[1], x[0].lower()))
+            # Sort leaderboard data using official rank as tiebreaker
+            # Primary sort by score descending, secondary sort by hiscore rank ascending (lower rank is better)
+            leaderboard_data.sort(
+                key=lambda x: (-x[1], x[2] if x[2] > 0 else float("inf"))
+            )
             leaderboard_data = leaderboard_data[:50]
 
             # Check if anyone was cut off from top 50
@@ -657,16 +698,22 @@ async def update_leaderboard(guild_id=None, manual=False):
                     f"Some users did not make top 50. Cutoff score: {leaderboard_data[-1][1]}"
                 )
 
-            # Generate leaderboard message
-            leaderboard_message = "**🏆 Collection Log Leaderboard (Top 50) 🏆**\n\n"
+                # Generate leaderboard message as an embed instead of plain text
+            embed = discord.Embed(
+                title="🏆 Collection Log Leaderboard (Top 50) 🏆",
+                color=0xF5C243,  # Golden color for the leaderboard
+            )
+
+            # Create the leaderboard content for the description
+            leaderboard_content = ""
             last_score = None
+            last_rank = None
             current_rank = 0
 
-            for idx, (username, total) in enumerate(leaderboard_data, 1):
-                # Update rank only when score changes
-                if total != last_score:
-                    current_rank = idx
-                last_score = total
+            for idx, (username, score, hiscore_rank) in enumerate(leaderboard_data, 1):
+                # Always increment rank - unique rank for each position since we're already sorted by score and hiscore_ran
+                # Hiscore rank is only used as a tiebreaker to follow the official OSRS hiscores (First to rank 1, then 2, etc.)
+                current_rank = idx
 
                 cursor.execute(
                     "SELECT emoji, account_type FROM linked_accounts WHERE guild_id = ? AND username = ?",
@@ -675,9 +722,9 @@ async def update_leaderboard(guild_id=None, manual=False):
                 result = cursor.fetchone()
                 emoji, account_type = result if result else (None, None)
 
-                display_total = total if total != -1 else "<500"
+                display_score = score if score != -1 else "<500"
 
-                # Show medal for top 3, using current_rank instead of idx
+                # Show medal for top 3, using current_rank which is now the actual position
                 if current_rank == 1:
                     prefix = "🥇"
                 elif current_rank == 2:
@@ -687,27 +734,43 @@ async def update_leaderboard(guild_id=None, manual=False):
                 else:
                     prefix = f"{current_rank}."
 
-                rank_line = f"{prefix} **{username}** {emoji or ''} ({account_type}) - {display_total}"
+                # Replace account type with custom emoji if available
+                account_type_emoji = get_account_type_emoji(account_type)
+
+                rank_line = f"{prefix} {account_type_emoji} **{username}** {emoji or ''} - {display_score}"
                 if current_rank == 1:
                     rank_line += " / 1,568"
 
-                leaderboard_message += rank_line + "\n"
+                leaderboard_content += rank_line + "\n"
                 if current_rank == 3:
-                    leaderboard_message += "\n"
+                    leaderboard_content += "\n"
 
-            # Add instructions at the end of the leaderboard message
-            leaderboard_message += "\n\n**📋 Bot Commands:**\n"
-            leaderboard_message += "• `/link [username] [account-type] [emoji]` - Add your RuneScape account to the leaderboard\n"
-            leaderboard_message += "• `/unlink [username]` - Remove one of your linked accounts\n"
-            leaderboard_message += "• `/list` - View all your linked RuneScape accounts\n"
-            leaderboard_message += "• `/whois [username]` - See which Discord user owns a RuneScape account\n\n"
-            leaderboard_message += "**ℹ️ Info:**\n" 
-            leaderboard_message += "• The leaderboard shows OSRS Collection Log completion totals\n"
-            leaderboard_message += "• Collection logs under 500 items don't appear on hiscores\n"
-            leaderboard_message += "• Players with <500 items need a moderator to use `/override` to set their score\n"
-            leaderboard_message += f"• Last updated: <t:{int(time.time())}:R>"
-            
-            # Send or update the leaderboard message
+            # Set the description to the leaderboard content
+            embed.description = leaderboard_content
+
+            # Add command instructions as a field
+            commands_field = (
+                "• `/link [username] [account-type] [emoji]` - Add your RuneScape account\n"
+                "• `/unlink [username]` - Remove one of your linked accounts\n"
+                "• `/list` - View all your linked RuneScape accounts\n"
+                "• `/whois [username]` - See which Discord user owns an account"
+            )
+            embed.add_field(name="📋 Bot Commands", value=commands_field, inline=False)
+
+            # Add info as another field
+            info_field = (
+                "• The leaderboard shows OSRS Collection Log completion totals\n"
+                "• Collection logs under 500 items don't appear on hiscores\n"
+                "• Players with <500 items need a moderator to use `/override`\n"
+                "• In case of ties, players are ranked by their official OSRS hiscore position"
+            )
+            embed.add_field(name="ℹ️ Info", value=info_field, inline=False)
+
+            # Add timestamp to footer
+            embed.set_footer(text=f"Last updated")
+            embed.timestamp = datetime.datetime.now()
+
+            # Send or update the leaderboard embed
             channel_id = get_leaderboard_channel_id(guild_id)
             if not channel_id:
                 logger.warning(
@@ -727,17 +790,15 @@ async def update_leaderboard(guild_id=None, manual=False):
             if leaderboard_message_id:
                 try:
                     message = await channel.fetch_message(leaderboard_message_id)
-                    await message.edit(content=leaderboard_message)
+                    await message.edit(content=None, embed=embed)
                     logger.info(
-                        f"Leaderboard updated successfully for guild {guild_id}!"
+                        f"Leaderboard embed updated successfully for guild {guild_id}!"
                     )
                 except discord.NotFound:
                     logger.warning(
                         f"Leaderboard message not found for guild {guild_id}, sending a new one."
                     )
-                    await send_leaderboard_message(
-                        channel, leaderboard_message, guild_id
-                    )
+                    await send_leaderboard_embed(channel, embed, guild_id)
                 except discord.Forbidden:
                     logger.error(
                         f"Bot does not have permission to edit messages in channel {channel.id} for guild {guild_id}."
@@ -746,25 +807,25 @@ async def update_leaderboard(guild_id=None, manual=False):
                     logger.error(f"Error updating leaderboard message: {e}")
                     logger.error(traceback.format_exc())
             else:
-                await send_leaderboard_message(channel, leaderboard_message, guild_id)
+                await send_leaderboard_embed(channel, embed, guild_id)
     except Exception as e:
         logger.error(f"Error in update_leaderboard: {e}")
         logger.error(traceback.format_exc())
 
 
-# ➤ Send the leaderboard message for the first time
-async def send_leaderboard_message(channel, leaderboard_message, guild_id):
-    logger.info("Sending leaderboard message...")
+# ➤ Send the leaderboard embed for the first time
+async def send_leaderboard_embed(channel, embed, guild_id):
+    logger.info("Sending leaderboard embed...")
     try:
-        message = await channel.send(leaderboard_message)
+        message = await channel.send(embed=embed)
         set_leaderboard_message_id(guild_id, str(message.id))
-        logger.info("Leaderboard message sent and message ID saved.")
+        logger.info("Leaderboard embed sent and message ID saved.")
     except discord.Forbidden:
         logger.error(
             f"Bot does not have permission to send messages in channel {channel.id}."
         )
     except discord.HTTPException as e:
-        logger.error(f"Failed to send leaderboard message: {e}")
+        logger.error(f"Failed to send leaderboard embed: {e}")
 
 
 # ➤ /resync (Admin Only) - Manually update the collection log leaderboard
