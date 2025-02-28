@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import sqlite3
 import aiohttp
+import time
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -74,6 +75,8 @@ load_dotenv()
 
 # Get values from .env file
 TOKEN = os.getenv("DISCORD_TOKEN")
+ADMIN_ROLE_ID = os.getenv("ADMIN_ROLE_ID")  # Add this line
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")  # Add this line
 
 
 # Create a global connection pool
@@ -177,18 +180,50 @@ def set_leaderboard_channel_id(guild_id, channel_id: int):
         conn.commit()
 
 
+# Custom check for admin permissions including specific role and user
+def is_admin():
+    async def predicate(interaction: discord.Interaction):
+        # Always allow server administrators
+        if interaction.user.guild_permissions.administrator:
+            return True
+
+        # Check for specific role if configured
+        if ADMIN_ROLE_ID:
+            try:
+                admin_role_id = int(ADMIN_ROLE_ID)
+                if any(role.id == admin_role_id for role in interaction.user.roles):
+                    logger.info(
+                        f"User {interaction.user} granted admin access via role ID {admin_role_id}"
+                    )
+                    return True
+            except (ValueError, TypeError):
+                logger.warning("Invalid ADMIN_ROLE_ID in environment variables")
+
+        # Check for specific user if configured
+        if ADMIN_USER_ID:
+            try:
+                admin_user_id = int(ADMIN_USER_ID)
+                if interaction.user.id == admin_user_id:
+                    logger.info(
+                        f"User {interaction.user} granted admin access via user ID {admin_user_id}"
+                    )
+                    return True
+            except (ValueError, TypeError):
+                logger.warning("Invalid ADMIN_USER_ID in environment variables")
+
+        # No permission - raise appropriate error
+        raise app_commands.MissingPermissions(["administrator"])
+
+    return app_commands.check(predicate)
+
+
 # ➤ /setup command
 @bot.tree.command(
     name="setup", description="Set up the leaderboard channel for this server"
 )
 @app_commands.describe(channel="The channel to post the leaderboard in")
-@app_commands.checks.has_permissions(administrator=True)
+@is_admin()  # Replace existing check with custom check
 async def setup(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ You must be an administrator to use this command.", ephemeral=True
-        )
-        return
 
     guild_id = interaction.guild_id
 
@@ -385,15 +420,10 @@ async def list_accounts(interaction: discord.Interaction, user: discord.Member =
     name="unlink_all", description="(Admin) Remove all linked usernames for a user"
 )
 @app_commands.describe(user="The user whose linked usernames you want to remove")
-@app_commands.checks.has_permissions(administrator=True)
+@is_admin()
 async def unlink_all(interaction: discord.Interaction, user: discord.Member):
     guild_id = interaction.guild_id
 
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ You must be an administrator to use this command.", ephemeral=True
-        )
-        return
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -666,8 +696,17 @@ async def update_leaderboard(guild_id=None, manual=False):
                     leaderboard_message += "\n"
 
             # Add instructions at the end of the leaderboard message
-            leaderboard_message += "\n\nTo link your account, use `/link`\nTo unlink an account, use `/unlink`\n"
-
+            leaderboard_message += "\n\n**📋 Bot Commands:**\n"
+            leaderboard_message += "• `/link [username] [account-type] [emoji]` - Add your RuneScape account to the leaderboard\n"
+            leaderboard_message += "• `/unlink [username]` - Remove one of your linked accounts\n"
+            leaderboard_message += "• `/list` - View all your linked RuneScape accounts\n"
+            leaderboard_message += "• `/whois [username]` - See which Discord user owns a RuneScape account\n\n"
+            leaderboard_message += "**ℹ️ Info:**\n" 
+            leaderboard_message += "• The leaderboard shows OSRS Collection Log completion totals\n"
+            leaderboard_message += "• Collection logs under 500 items don't appear on hiscores\n"
+            leaderboard_message += "• Players with <500 items need a moderator to use `/override` to set their score\n"
+            leaderboard_message += f"• Last updated: <t:{int(time.time())}:R>"
+            
             # Send or update the leaderboard message
             channel_id = get_leaderboard_channel_id(guild_id)
             if not channel_id:
@@ -733,15 +772,9 @@ async def send_leaderboard_message(channel, leaderboard_message, guild_id):
     name="resync",
     description="Manually update the collection log leaderboard",
 )
-@app_commands.checks.has_permissions(administrator=True)
+@is_admin()  # Replace existing check with our custom check
 async def update_leaderboard_command(interaction: discord.Interaction):
     guild_id = interaction.guild_id
-
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ You must be an administrator to use this command.", ephemeral=True
-        )
-        return
 
     await interaction.response.send_message(
         "🔄 Updating leaderboard now...", ephemeral=True
@@ -764,15 +797,9 @@ async def update_leaderboard_command(interaction: discord.Interaction):
 @app_commands.describe(
     username="The RuneScape username", total="The new collection log total"
 )
-@app_commands.checks.has_permissions(administrator=True)
+@is_admin()  # Replace existing check with our custom check
 async def override(interaction: discord.Interaction, username: str, total: int):
     guild_id = interaction.guild_id
-
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "❌ You must be an administrator to use this command.", ephemeral=True
-        )
-        return
 
     if total >= 499 or total <= 0:
         await interaction.response.send_message(
