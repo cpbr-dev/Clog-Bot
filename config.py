@@ -18,11 +18,19 @@ OSRS_API_URL = (
     "https://secure.runescape.com/m=hiscore_oldschool/index_lite.json?player="
 )
 
-# Account type emojis
+# Account type emoji
+# Load the IDs from the environment variables
+
+GIM_EMOJI_ID = os.getenv("GIM_EMOJI_ID")
+UIM_EMOJI_ID = os.getenv("UIM_EMOJI_ID")
+HCIM_EMOJI_ID = os.getenv("HCIM_EMOJI_ID")
+IM_EMOJI_ID = os.getenv("IM_EMOJI_ID")
+MAIN_EMOJI_ID = os.getenv("MAIN_EMOJI_ID")
+
 ACCOUNT_TYPE_EMOJIS = {
-    "GIM": "<:gim:1345118041557696583>",
-    "UIM": "<:uim:1345118022712557739>",
-    "HCIM": "<:hcim:1345118032162328656>",
-    "Iron": "<:im:1345118010675040379>",
-    "Main": "<:main:1345164337978933389>",
+    "GIM": f"<:gim:{GIM_EMOJI_ID}>",
+    "UIM": f"<:uim:{UIM_EMOJI_ID}>",
+    "HCIM": f"<:hcim:{HCIM_EMOJI_ID}>",
+    "Iron": f"<:im:{IM_EMOJI_ID}>",
+    "Main": f"<:main:{MAIN_EMOJI_ID}>",
 }
