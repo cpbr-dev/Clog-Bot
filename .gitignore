@@ -2,8 +2,8 @@
 .venv/
 *.db
 *.log
-.db-wal
-.db-shm
+*.db-wal
+*.db-shm
 
 # Python bytecode and cached files
 __pycache__/
