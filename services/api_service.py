@@ -179,7 +179,7 @@ async def fetch_collection_log(username, max_retries=2):
 
         # Enqueue the API request with rate limiting
         result = await enqueue_api_request(
-            _fetch_collection_log_internal, username, False
+            _fetch_collection_log_internal, username
         )
 
         if result is not None:
