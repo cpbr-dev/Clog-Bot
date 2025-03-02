@@ -47,7 +47,7 @@ async def send_leaderboard_embed(channel, embed, guild_id):
 
 # ➤ Update leaderboard every hour
 @tasks.loop(hours=1)
-async def update_leaderboard(guild_id=None, manual=False, bypass_cache=False):
+async def update_leaderboard(guild_id=None, manual=False):
     global _bot
 
     if not _bot:
@@ -110,7 +110,7 @@ async def update_leaderboard(guild_id=None, manual=False, bypass_cache=False):
             for (username,) in usernames:
                 try:
                     logger.debug(f"Processing {username} for leaderboard")
-                    result = await fetch_collection_log(username, bypass_cache=bypass_cache)
+                    result = await fetch_collection_log(username)
 
                     if result is not None:
                         score = result["score"]

@@ -73,8 +73,8 @@ def register_admin_commands(bot):
             "🔄 Syncing leaderboard with fresh data from the OSRS API...", ephemeral=True
         )
 
-        # Run the leaderboard update function manually with bypass_cache=True
-        await update_leaderboard(guild_id, manual=True, bypass_cache=True)
+        # Run the leaderboard update function manually
+        await update_leaderboard(guild_id, manual=True)
 
         # Confirm completion
         await interaction.followup.send(
