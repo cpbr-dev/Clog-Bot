@@ -70,7 +70,8 @@ def register_admin_commands(bot):
         guild_id = interaction.guild_id
 
         await interaction.response.send_message(
-            "🔄 Syncing leaderboard with fresh data from the OSRS API...", ephemeral=True
+            "🔄 Syncing leaderboard with fresh data from the OSRS API...",
+            ephemeral=True,
         )
 
         # Run the leaderboard update function manually
@@ -78,7 +79,8 @@ def register_admin_commands(bot):
 
         # Confirm completion
         await interaction.followup.send(
-            "✅ Leaderboard updated with the latest data from the OSRS hiscores!", ephemeral=True
+            "✅ Leaderboard updated with the latest data from the OSRS hiscores!",
+            ephemeral=True,
         )
 
     # ➤ /override (Admin Only)

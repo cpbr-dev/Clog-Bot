@@ -74,7 +74,7 @@ def init_db():
 def get_db_connection():
     """Thread-safe database connection with auto-reconnect"""
     global db_conn
-    
+
     try:
         # Test if connection is alive
         db_conn.execute("SELECT 1")

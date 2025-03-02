@@ -139,11 +139,11 @@ def register_user_commands(bot):
                     (guild_id, username),
                 )
                 owner_info = cursor.fetchone()
-                
+
                 if not owner_info:
                     await interaction.response.send_message(
-                        f"❌ Username **{username}** is not linked to any user.", 
-                        ephemeral=True
+                        f"❌ Username **{username}** is not linked to any user.",
+                        ephemeral=True,
                     )
                     return
 
@@ -152,15 +152,15 @@ def register_user_commands(bot):
                     "DELETE FROM linked_accounts WHERE guild_id = ? AND username = ?",
                     (guild_id, username),
                 )
-                
+
                 try:
-                    owner = await bot.fetch_user(owner_info['discord_id'])
+                    owner = await bot.fetch_user(owner_info["discord_id"])
                     owner_mention = owner.mention
                     owner_name = str(owner)
                 except:
                     owner_mention = "Unknown User"
                     owner_name = "Unknown User"
-                
+
                 admin_message = f" (owned by {owner_name})"
             else:
                 # Regular users can only unlink their own usernames
