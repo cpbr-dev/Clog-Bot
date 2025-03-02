@@ -47,7 +47,7 @@ python main.py
 
 Edit the `.env` file with your specific settings:
 
-```
+```Dotenv
 # Required Discord Bot Token
 DISCORD_TOKEN=your_discord_bot_token_here
 
