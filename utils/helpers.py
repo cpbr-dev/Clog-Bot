@@ -46,6 +46,33 @@ def is_admin():
     return app_commands.check(predicate)
 
 
+# Helper function to check if a user is an admin (returns boolean instead of raising exception)
+def is_admin_user(interaction: discord.Interaction):
+    # Always allow server administrators
+    if interaction.user.guild_permissions.administrator:
+        return True
+
+    # Check for specific role if configured
+    if ADMIN_ROLE_ID:
+        try:
+            admin_role_id = int(ADMIN_ROLE_ID)
+            if any(role.id == admin_role_id for role in interaction.user.roles):
+                return True
+        except (ValueError, TypeError):
+            logger.warning("Invalid ADMIN_ROLE_ID in environment variables")
+
+    # Check for specific user if configured
+    if ADMIN_USER_ID:
+        try:
+            admin_user_id = int(ADMIN_USER_ID)
+            if interaction.user.id == admin_user_id:
+                return True
+        except (ValueError, TypeError):
+            logger.warning("Invalid ADMIN_USER_ID in environment variables")
+
+    return False
+
+
 # Get account type emoji
 def get_account_type_emoji(account_type):
     return ACCOUNT_TYPE_EMOJIS.get(account_type, account_type)

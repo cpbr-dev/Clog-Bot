@@ -8,6 +8,7 @@ import re
 from database.db_manager import get_db_connection
 from services.api_service import fetch_collection_log
 from services.leaderboard_service import update_leaderboard, refresh_leaderboard_display
+from utils.helpers import is_admin_user  # Import helper to check admin status
 
 logger = logging.getLogger()
 
@@ -126,23 +127,56 @@ def register_user_commands(bot):
     @app_commands.describe(username="The username you want to unlink")
     async def unlink(interaction: discord.Interaction, username: str):
         guild_id = interaction.guild_id
+        is_admin = is_admin_user(interaction)
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
 
-            # Non-admins can only unlink their own usernames
-            cursor.execute(
-                "DELETE FROM linked_accounts WHERE guild_id = ? AND discord_id = ? AND username = ?",
-                (guild_id, interaction.user.id, username),
-            )
+            if is_admin:
+                # Admins can unlink any username
+                cursor.execute(
+                    "SELECT discord_id FROM linked_accounts WHERE guild_id = ? AND username = ?",
+                    (guild_id, username),
+                )
+                owner_info = cursor.fetchone()
+                
+                if not owner_info:
+                    await interaction.response.send_message(
+                        f"❌ Username **{username}** is not linked to any user.", 
+                        ephemeral=True
+                    )
+                    return
+
+                # Delete the username regardless of who linked it
+                cursor.execute(
+                    "DELETE FROM linked_accounts WHERE guild_id = ? AND username = ?",
+                    (guild_id, username),
+                )
+                
+                try:
+                    owner = await bot.fetch_user(owner_info['discord_id'])
+                    owner_mention = owner.mention
+                    owner_name = str(owner)
+                except:
+                    owner_mention = "Unknown User"
+                    owner_name = "Unknown User"
+                
+                admin_message = f" (owned by {owner_name})"
+            else:
+                # Regular users can only unlink their own usernames
+                cursor.execute(
+                    "DELETE FROM linked_accounts WHERE guild_id = ? AND discord_id = ? AND username = ?",
+                    (guild_id, interaction.user.id, username),
+                )
+                admin_message = ""
 
             if cursor.rowcount > 0:
                 conn.commit()
                 await interaction.response.send_message(
-                    f"✅ Unlinked **{username}**!", ephemeral=True
+                    f"✅ Unlinked **{username}**{admin_message}!", ephemeral=True
                 )
                 logger.info(
-                    f"User {interaction.user} unlinked account {username} in guild {guild_id}."
+                    f"User {interaction.user} unlinked account {username} in guild {guild_id}. Admin: {is_admin}"
                 )
 
                 # Also remove from leaderboard
@@ -152,16 +186,22 @@ def register_user_commands(bot):
                 )
                 conn.commit()
 
-                # Refresh leaderboard in the channel
-                await update_leaderboard(guild_id)
+                # Just refresh the display without fetching new data
+                await refresh_leaderboard_display(guild_id)
             else:
-                await interaction.response.send_message(
-                    "❌ You can only unlink usernames you linked yourself.",
-                    ephemeral=True,
-                )
-                logger.warning(
-                    f"User {interaction.user} tried to unlink an account they didn't link: {username} in guild {guild_id}"
-                )
+                if is_admin:
+                    # This shouldn't happen for admins due to our earlier check
+                    await interaction.response.send_message(
+                        f"❓ Failed to unlink **{username}**.", ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "❌ You can only unlink usernames you linked yourself.",
+                        ephemeral=True,
+                    )
+                    logger.warning(
+                        f"User {interaction.user} tried to unlink an account they didn't link: {username} in guild {guild_id}"
+                    )
 
     # ➤ /list command
     @bot.tree.command(
