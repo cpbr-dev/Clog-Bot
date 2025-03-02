@@ -76,21 +76,32 @@ def register_user_commands(bot):
                 if result is not None:
                     score = result["score"]
                     rank = result["rank"]
+
+                    # Even if score is -1, add to the leaderboard
                     cursor.execute(
                         "INSERT INTO leaderboard (guild_id, username, collection_log_total, hiscore_rank) VALUES (?, ?, ?, ?) "
                         "ON CONFLICT(guild_id, username) DO UPDATE SET collection_log_total = ?, hiscore_rank = ?",
                         (guild_id, username, score, rank, score, rank),
                     )
                     conn.commit()
-                    logger.info(
-                        f"Leaderboard updated for {username} in guild {guild_id}"
-                    )
 
-                    # Inform user of the result
-                    await interaction.followup.send(
-                        f"✅ Added **{username}** to the leaderboard with **{score}** collection log items!",
-                        ephemeral=True,
-                    )
+                    # Log with specific note if score is -1
+                    if score == -1:
+                        logger.info(
+                            f"Added {username} to leaderboard with score -1 (below hiscores threshold) in guild {guild_id}"
+                        )
+                        await interaction.followup.send(
+                            f"✅ Added **{username}** to the leaderboard! Their collection log count is below 500 items.",
+                            ephemeral=True,
+                        )
+                    else:
+                        logger.info(
+                            f"Leaderboard updated for {username} with score {score} in guild {guild_id}"
+                        )
+                        await interaction.followup.send(
+                            f"✅ Added **{username}** to the leaderboard with **{score}** collection log items!",
+                            ephemeral=True,
+                        )
 
                     # Just refresh the display instead of a full update
                     await refresh_leaderboard_display(guild_id)
