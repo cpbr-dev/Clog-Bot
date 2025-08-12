@@ -246,7 +246,7 @@ async def update_leaderboard(guild_id=None, manual=False):
 
                 rank_line = f"{prefix} {account_type_emoji} **{username}** {emoji or ''} - {display_score}"
                 if current_rank == 1:
-                    rank_line += " / 1.608"
+                    rank_line += " / 1608"
 
                 leaderboard_content += rank_line + "\n"
                 if current_rank == 3:
@@ -394,7 +394,7 @@ async def refresh_leaderboard_display(guild_id):
 
                 rank_line = f"{prefix} {account_type_emoji} **{username}** {emoji or ''} - {display_score}"
                 if current_rank == 1:
-                    rank_line += " / 1.608"
+                    rank_line += " / 1608"
 
                 leaderboard_content += rank_line + "\n"
                 if current_rank == 3:
