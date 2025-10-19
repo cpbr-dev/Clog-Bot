@@ -118,7 +118,7 @@ async def _fetch_collection_log_internal(username):
                             f"Successfully parsed JSON response for {username}"
                         )
                         for activity in data.get("activities", []):
-                            if activity["id"] == 18:  # Collections Logged
+                            if activity["name"] == "Collections Logged":  # Collections Logged
                                 result = {
                                     "score": activity["score"],
                                     "rank": activity["rank"],
